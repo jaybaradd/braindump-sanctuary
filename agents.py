@@ -19,8 +19,9 @@ import os
 import json
 import requests
 
-# We'll use Google Gemini as the LLM
-import google.generativeai as genai
+# We'll use Google Gemini as the LLM (modern google-genai SDK)
+from google import genai
+from google.genai import types
 
 from dotenv import load_dotenv
 
@@ -28,23 +29,27 @@ from dotenv import load_dotenv
 from tavily import TavilyClient
 
 # --- API Key Configuration ---
-# Add your "GOOGLE_API_KEY" to Kaggle secrets or environment variables.
 # Get your free key from: https://aistudio.google.com/app/apikey
 try:
     load_dotenv()
-    # Fallback for local dev or other environments
     API_KEY = os.getenv("GOOGLE_API_KEY")
 except Exception:
     API_KEY = None
 
+def get_genai_client():
+    """Helper to get or create a google.genai.Client instance."""
+    api_key = os.getenv("GOOGLE_API_KEY") or API_KEY
+    if not api_key or api_key == "YOUR_API_KEY_HERE":
+        return None
+    try:
+        return genai.Client(api_key=api_key)
+    except Exception as e:
+        print(f"Error initializing GenAI Client: {e}")
+        return None
+
 if not API_KEY:
-    print("WARNING: GOOGLE_API_KEY not found. Please set it in your environment or Kaggle secrets.")
-    print("Get your free API key from: https://aistudio.google.com/app/apikey")
-    # Set a placeholder to avoid crashing, but calls will fail.
+    print("WARNING: GOOGLE_API_KEY not found. Please set it in your environment.")
     API_KEY = "YOUR_API_KEY_HERE"
-else:
-    # Configure Gemini with the API key
-    genai.configure(api_key=API_KEY)
 
 # --- Tavily API Key Configuration ---
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
@@ -92,24 +97,23 @@ Your Response:
 
     def generate_questions(self, idea: str) -> list[str]:
         """Generates Socratic questions for a given idea."""
-        if API_KEY == "YOUR_API_KEY_HERE":
-             return ["Error: GOOGLE_API_KEY is not set.", "Please add it to your environment or Kaggle secrets."]
+        client = get_genai_client()
+        if not client:
+            return ["Error: GOOGLE_API_KEY is not set.", "Please add it to your environment."]
 
         try:
-            # Create Gemini model
-            model = genai.GenerativeModel(
-                model_name=self.model,
-                generation_config={
-                    "temperature": 0.7,
-                    "response_mime_type": "application/json"
-                }
-            )
-            
             # Combine system prompt and user input
             prompt = f"{self.system_prompt}\n\nUser Idea: \"{idea}\""
             
-            # Generate response
-            response = model.generate_content(prompt)
+            # Generate response using modern google-genai SDK
+            response = client.models.generate_content(
+                model=self.model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.7,
+                    response_mime_type="application/json"
+                )
+            )
             questions_json_string = response.text
             questions = json.loads(questions_json_string)
             
@@ -158,10 +162,11 @@ Each value should be a short paragraph (2-4 sentences).
 
     def analyze(self, topic: str) -> dict[str, str]:
         """Analyzes a topic from multiple perspectives with optional web context."""
-        if API_KEY == "YOUR_API_KEY_HERE":
+        client = get_genai_client()
+        if not client:
             return {
                 "skeptical": "Error: GOOGLE_API_KEY not set.",
-                "optimistic": "Please add your API key to environment or Kaggle secrets.",
+                "optimistic": "Please add your API key to environment.",
                 "nuanced": "The agent cannot run without an API key."
             }
 
@@ -178,20 +183,18 @@ Each value should be a short paragraph (2-4 sentences).
                         web_context += f"{i}. {article['title']}: {article['snippet']}\n"
                         sources.append(article)
             
-            # Create Gemini model
-            model = genai.GenerativeModel(
-                model_name=self.model,
-                generation_config={
-                    "temperature": 0.7,
-                    "response_mime_type": "application/json"
-                }
-            )
-            
             # Combine system prompt and user input with optional web context
             prompt = f"{self.system_prompt}\n\nTopic: \"{topic}\"{web_context}"
             
-            # Generate response
-            response = model.generate_content(prompt)
+            # Generate response using modern google-genai SDK
+            response = client.models.generate_content(
+                model=self.model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.7,
+                    response_mime_type="application/json"
+                )
+            )
             perspectives_json_string = response.text
             perspectives = json.loads(perspectives_json_string)
             
@@ -232,7 +235,6 @@ class SearchAgent:
             print("✅ Initialized SearchAgent with Perplexity Sonar API")
         elif self.use_tavily:
             self.tavily = TavilyClient(api_key=TAVILY_API_KEY)
-            self.llm = genai.GenerativeModel("gemini-2.5-flash")
             print("✅ Initialized SearchAgent with Tavily API")
         else:
             print("⚠️ Initialized MOCK SearchAgent (no Perplexity or Tavily key)")
@@ -339,8 +341,15 @@ Web Search Results:
 
 Provide ONLY the summary text, no preamble."""
 
-            response = self.llm.generate_content(synthesis_prompt)
-            summary = response.text
+            client = get_genai_client()
+            if client:
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=synthesis_prompt
+                )
+                summary = response.text
+            else:
+                summary = "Error: GOOGLE_API_KEY is not configured for Gemini synthesis."
             
             return {
                 "summary": summary,
@@ -667,18 +676,11 @@ Just the thoughtful question or observation that belongs in this cluster.
         Returns:
             Generated brain dump text as a string
         """
-        if API_KEY == "YOUR_API_KEY_HERE":
+        client = get_genai_client()
+        if not client:
             return "Error: GOOGLE_API_KEY is not set. Please add it to your environment."
 
         try:
-            # Create Gemini model
-            model = genai.GenerativeModel(
-                model_name=self.model,
-                generation_config={
-                    "temperature": 0.8,  # Higher temperature for more creativity
-                }
-            )
-            
             # Format entries for the prompt
             entries_str = "\n".join([f"- {entry}" for entry in entries])
             
@@ -692,8 +694,14 @@ Existing entries in this cluster:
 
 Generate a new, creative brain dump entry that fits this cluster:"""
             
-            # Generate response
-            response = model.generate_content(prompt)
+            # Generate response using modern google-genai SDK
+            response = client.models.generate_content(
+                model=self.model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.8
+                )
+            )
             generated_text = response.text.strip()
             
             # Clean up any extra quotes or markers

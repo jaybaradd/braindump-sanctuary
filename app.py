@@ -82,9 +82,9 @@ with st.sidebar:
     
     col1, col2 = st.columns([3, 1])
     with col1:
-        add_clicked = st.button("Add to Sanctuary", type="primary", use_container_width=True)
+        add_clicked = st.button("Add to Sanctuary", type="primary", width='stretch')
     with col2:
-        clear_clicked = st.button("Clear", use_container_width=True)
+        clear_clicked = st.button("Clear", width='stretch')
     
     if add_clicked:
         if new_dump.strip():
@@ -115,10 +115,10 @@ with st.sidebar:
     # Actions
     st.subheader("⚙️ Actions")
     
-    if st.button("🔄 Refresh Clusters", use_container_width=True):
+    if st.button("🔄 Refresh Clusters", width='stretch'):
         st.info("Clusters will refresh on the Home tab")
     
-    if st.button("🗑️ Clear All Dumps", use_container_width=True):
+    if st.button("🗑️ Clear All Dumps", width='stretch'):
         if not st.session_state.get('clearing', False):
             st.session_state.clearing = True
             # Clear all dumps and clusters from Neo4j
@@ -189,7 +189,7 @@ def render_brain_dump_table(dumps, cluster_labels_map):
         })
     
     df = pd.DataFrame(table_data)
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(df, width='stretch', hide_index=True)
 
 
 def render_feed_card(dump_id, text, cluster_id, cluster_labels_map):
@@ -256,7 +256,7 @@ def render_feed_card(dump_id, text, cluster_id, cluster_labels_map):
             for idx, image_url in enumerate(image_urls[:3]):
                 with cols[idx]:
                     try:
-                        st.image(image_url, use_container_width=True)
+                        st.image(image_url, width='stretch')
                     except Exception as e:
                         st.caption(f"Could not load image: {image_url}")
         
@@ -406,7 +406,7 @@ def render_home():
                 
                 # Visualize with labels
                 fig = create_knowledge_graph(dumps, coords_2d, clusters, cluster_labels_dict, embeddings)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
                         
             except Exception as e:
                 st.error(f"❌ Clustering error: {str(e)}")
