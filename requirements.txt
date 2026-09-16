@@ -25,9 +25,13 @@ streamlit==1.51.0
 plotly==5.18.0
 
 # Data
-pandas
-numpy
+pandas==2.3.3
+numpy==1.26.4
 pytz
 
 # Environment
 python-dotenv
+
+transformers==4.40.2
+torch==2.2.2
+sentence-transformers==2.7.0

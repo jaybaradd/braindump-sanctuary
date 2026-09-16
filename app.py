@@ -23,8 +23,9 @@ from fuzzywuzzy import fuzz
 # Import Day 1 components
 from braindump_core import BrainDumpDB, EmbeddingEngine, ClusterEngine, create_knowledge_graph
 
-# Import Day 2 components
+# Import Day 2 components & LangGraph Workflow
 from agents import QuestionAgent, SearchAgent, GenerationAgent, FeedAgent
+from workflow import run_braindump_workflow_sync
 
 # Page config
 st.set_page_config(
@@ -226,24 +227,34 @@ def render_feed_card(dump_id, text, cluster_id, cluster_labels_map):
                         print(f"Error searching for images: {str(e)}")
                         image_urls = []
         else:
-            # Generate summary using Feed Agent
-            with st.spinner("🧠 Generating Sonar summary and images..."):
+            # Generate summary, questions, and images via async parallel LangGraph StateGraph workflow
+            with st.spinner("🧠 Executing LangGraph Multi-Agent Workflow..."):
                 try:
-                    result = st.session_state.feed_agent.generate_summary(text)
-                    summary = result['summary']
+                    cluster_label = None
+                    cluster_dumps = []
+                    if cluster_id is not None and cluster_id != -1 and cluster_id in cluster_labels_map:
+                        cluster_label = cluster_labels_map[cluster_id]['label']
+                        cluster_dumps = [
+                            t for _, t in st.session_state.db.get_cluster_dumps(cluster_id)
+                        ]
+
+                    # Invoke LangGraph parallel workflow
+                    state_res = run_braindump_workflow_sync(
+                        dump_id=dump_id,
+                        text=text,
+                        cluster_id=cluster_id,
+                        cluster_label=cluster_label,
+                        cluster_dumps=cluster_dumps,
+                    )
+                    
+                    summary = state_res.get("summary", "No summary generated")
                     st.markdown("**Summary:**")
                     st.write(summary)
                     
-                    # Generate questions
-                    questions = st.session_state.question_agent.generate_questions(text)
-                    
-                    # Search for related images
-                    image_urls = st.session_state.feed_agent.search_images(text, max_results=3)
-                    
-                    # Cache summary, questions, and images
-                    st.session_state.db.save_feed_cache(dump_id, summary, questions, image_urls)
+                    questions = state_res.get("socratic_questions", [])
+                    image_urls = state_res.get("image_urls", [])
                 except Exception as e:
-                    st.error(f"Error generating summary: {str(e)}")
+                    st.error(f"Error executing LangGraph workflow: {str(e)}")
                     summary = "Unable to generate summary. Please try again."
                     questions = []
                     image_urls = []
@@ -363,23 +374,26 @@ def render_home():
                                     else:
                                         cluster_labels_dict[cluster_id] = existing_labels[cluster_id]['label']
                         
-                        # Generate and cache feed data for new/uncached dumps
-                        with st.spinner("Generating feed summaries and questions..."):
-                            for i, (dump_id, text, _, _) in enumerate(dumps):
-                                # Check if feed cache already exists
+                        # Generate and cache feed data for new/uncached dumps using LangGraph workflow
+                        with st.spinner("Executing LangGraph workflows for new thoughts..."):
+                            for i, (dump_id, text, cluster_id, _) in enumerate(dumps):
                                 if not st.session_state.db.get_feed_cache(dump_id):
                                     try:
-                                        # Generate summary
-                                        summary_result = st.session_state.feed_agent.generate_summary(text)
-                                        summary = summary_result['summary']
-                                        
-                                        # Generate questions
-                                        questions = st.session_state.question_agent.generate_questions(text)
-                                        
-                                        # Cache both
-                                        st.session_state.db.save_feed_cache(dump_id, summary, questions)
+                                        cluster_label = cluster_labels_dict.get(cluster_id) if cluster_id is not None else None
+                                        cluster_dumps = [
+                                            dumps[j][1]
+                                            for j in range(len(dumps))
+                                            if clusters[j] == cluster_id and cluster_id is not None and cluster_id != -1
+                                        ]
+                                        run_braindump_workflow_sync(
+                                            dump_id=dump_id,
+                                            text=text,
+                                            cluster_id=cluster_id,
+                                            cluster_label=cluster_label,
+                                            cluster_dumps=cluster_dumps,
+                                        )
                                     except Exception as e:
-                                        print(f"Warning: Could not generate feed cache for {dump_id}: {e}")
+                                        print(f"Warning: Could not run LangGraph workflow for {dump_id}: {e}")
                                         # Continue without caching for this dump
                 else:
                     # Use existing embeddings and clusters
